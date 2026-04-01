@@ -1,0 +1,24 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+venv/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Mac
+.DS_Store
+
+# Data files (optional - if large/sensitive)
+# data/raw/
+# data/processed/
+
+# VS Code
+.vscode/
+
+# Output files
+*.log
