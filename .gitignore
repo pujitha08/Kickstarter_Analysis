@@ -14,8 +14,9 @@ venv/
 .DS_Store
 
 # Data files (optional - if large/sensitive)
-# data/raw/
-# data/processed/
+data/raw/
+data/processed/
+*.csv
 
 # VS Code
 .vscode/
