@@ -178,3 +178,124 @@ print("=" * 50)
 print(f"RQ2 (adding NLP):     +{auc_nlp - auc_basic:.3f}")
 print(f"RQ3 (adding framing): +{auc_f - auc_c:.3f}")
 print("=" * 50)
+
+# ---------------------------------------------------------
+# RQ5: Funding Ratio Regression (Continuous Outcome)
+# ---------------------------------------------------------
+
+from sklearn.linear_model import LinearRegression
+from sklearn.metrics import r2_score, mean_squared_error
+
+print("\n" + "=" * 50)
+print("RQ5: Funding Ratio Regression")
+print("=" * 50)
+
+# Use same education dataset
+X_rq5 = edu[basic_features + nlp_features]
+y_rq5 = edu['funding_ratio']
+
+# Optional: remove extreme outliers (helps stability)
+X_rq5 = X_rq5[y_rq5 < 10]
+y_rq5 = y_rq5[y_rq5 < 10]
+
+# Train/test split
+X_train_rq5, X_test_rq5, y_train_rq5, y_test_rq5 = train_test_split(
+    X_rq5, y_rq5, test_size=0.2, random_state=42
+)
+
+# Scale
+X_train_scaled, X_test_scaled = scale_data(X_train_rq5, X_test_rq5)
+
+# Model
+model_rq5 = LinearRegression()
+model_rq5.fit(X_train_scaled, y_train_rq5)
+
+# Predictions
+y_pred = model_rq5.predict(X_test_scaled)
+
+# Evaluation
+r2 = r2_score(y_test_rq5, y_pred)
+rmse = np.sqrt(mean_squared_error(y_test_rq5, y_pred))
+
+print(f"R²: {r2:.3f}")
+print(f"RMSE: {rmse:.3f}")
+
+coeffs = pd.DataFrame({
+    'feature': X_rq5.columns,
+    'coef': model_rq5.coef_
+}).sort_values('coef', ascending=False)
+
+print("\nTop Positive Drivers:")
+print(coeffs.head(10))
+
+print("\nTop Negative Drivers:")
+print(coeffs.tail(10))
+
+from sklearn.model_selection import cross_val_score
+
+print("\n" + "=" * 50)
+print("MODEL VALIDATION: Cross-Validation")
+print("=" * 50)
+
+# RQ2 NLP model validation
+cv_nlp = cross_val_score(
+    LogisticRegression(max_iter=1000),
+    X_nlp_train_scaled,
+    y_train_rq2,
+    cv=5,
+    scoring='roc_auc'
+)
+
+print(f"RQ2 (NLP model) CV AUC: {cv_nlp.mean():.3f} ± {cv_nlp.std():.3f}")
+
+# RQ3 Framing model validation
+cv_framing = cross_val_score(
+    LogisticRegression(max_iter=1000),
+    X_framing_train_scaled,
+    y_train_rq3,
+    cv=5,
+    scoring='roc_auc'
+)
+
+print(f"RQ3 (Framing model) CV AUC: {cv_framing.mean():.3f} ± {cv_framing.std():.3f}")
+
+# RQ5 cross-validation (R²)
+from sklearn.model_selection import cross_val_score
+
+cv_rq5 = cross_val_score(
+    LinearRegression(),
+    X_train_scaled,
+    y_train_rq5,
+    cv=5,
+    scoring='r2'
+)
+
+print(f"RQ5 (Regression) CV R²: {cv_rq5.mean():.3f} ± {cv_rq5.std():.3f}")
+
+print("\n" + "=" * 50)
+print("FINAL MODEL COMPARISON")
+print("=" * 50)
+
+print(f"RQ2 Improvement (NLP):     +{auc_nlp - auc_basic:.3f}")
+print(f"RQ3 Improvement (Framing): +{auc_f - auc_c:.3f}")
+print(f"RQ5 Model Strength (R²):   {r2:.3f}")
+
+print("\nKey Insight:")
+if (auc_nlp - auc_basic) > (auc_f - auc_c):
+    print("→ NLP features add more predictive power than framing features.")
+else:
+    print("→ Framing features add more predictive power than NLP features.")
+
+    from sklearn.metrics import roc_auc_score, roc_curve
+
+fpr, tpr, _ = roc_curve(y_test_rq2, model_nlp.predict_proba(X_nlp_test_scaled)[:,1])
+
+plt.figure()
+plt.plot(fpr, tpr, label=f"NLP Model (AUC = {auc_nlp:.3f})")
+plt.plot([0,1], [0,1], linestyle='--')
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve - NLP Model")
+plt.legend()
+plt.savefig(os.path.join(BASE_DIR, "outputs", "figures", "roc_curve_nlp.png"))
+plt.close()
