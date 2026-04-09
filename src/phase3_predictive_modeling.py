@@ -3,6 +3,7 @@ PHASE 3: RQ2 & RQ3 - Predictive Modeling
 -----------------------------------------
 RQ2: Do NLP text features improve prediction vs basic features only?
 RQ3: Do framing features improve prediction beyond control variables?
+RQ5: What structural/NLP features best predict continuous funding ratio?
 
 This script builds four logistic regression models:
 - RQ2 Model 1: Basic features only
@@ -18,13 +19,18 @@ Fixes applied:
   [Fix 3] category_avg_success recomputed per fold (prevents leakage)
   [Fix 4] blurb_char_count dropped (collinear with blurb_word_count)
            sentiment_pos / sentiment_neg dropped (derived from compound)
+  [Fix 5] matplotlib import added (was missing — ROC curve crashed)
+  [Fix 6] duplicate cross_val_score import removed
+  [Fix 7] RQ5 CV now runs on full dataset, not just the training split
+  [Fix 8] RQ5 target log-transformed to handle right-skewed funding_ratio
 """
 
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import StratifiedKFold   # [Fix 1] replaces train_test_split
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import roc_auc_score
+import matplotlib.pyplot as plt                        # [Fix 5] was missing
+from sklearn.model_selection import StratifiedKFold, cross_val_score   # [Fix 1]
+from sklearn.linear_model import LogisticRegression, LinearRegression
+from sklearn.metrics import roc_auc_score, roc_curve, r2_score, mean_squared_error
 from sklearn.preprocessing import StandardScaler
 import os
 import warnings
@@ -152,11 +158,36 @@ def run_cv(feature_list, n_splits=5):
 aucs_basic = run_cv(basic_features)
 aucs_nlp   = run_cv(basic_features + nlp_features)
 
+# Keep a fitted model + scaled data for the ROC curve later
+_skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
+_tr, _te = next(_skf.split(edu, y))
+_cat_avg  = get_cat_avg_train(_tr)
+_X        = edu[basic_features + nlp_features].copy()
+_X['category_avg_success'] = _cat_avg
+X_nlp_train_scaled, X_nlp_test_scaled = scale_data(_X.iloc[_tr].values, _X.iloc[_te].values)
+y_train_rq2, y_test_rq2 = y[_tr], y[_te]
+model_nlp = LogisticRegression(max_iter=1000, random_state=42, class_weight='balanced')
+model_nlp.fit(X_nlp_train_scaled, y_train_rq2)
+auc_nlp = aucs_nlp.mean()   # canonical AUC is the CV mean
+
 # ---------------------------------------------------------
 # RQ3: Control vs Control + Framing
 # ---------------------------------------------------------
-aucs_control = run_cv(basic_features)          # same as basic — control = basic
+aucs_control = run_cv(basic_features)          # control == basic
 aucs_framing = run_cv(basic_features + framing_features)
+
+# Keep a fitted model for RQ3 cross_val_score block below
+_X_framing = edu[basic_features + framing_features].copy()
+_X_framing['category_avg_success'] = _cat_avg
+X_framing_train_scaled, X_framing_test_scaled = scale_data(
+    _X_framing.iloc[_tr].values, _X_framing.iloc[_te].values
+)
+y_train_rq3 = y_train_rq2   # same fold
+
+# Scalar aliases so the results block below stays readable
+auc_basic = aucs_basic.mean()
+auc_c     = aucs_control.mean()
+auc_f     = aucs_framing.mean()
 
 # ---------------------------------------------------------
 # Results
@@ -182,3 +213,98 @@ print("=" * 50)
 print(f"RQ2 (adding NLP):     +{aucs_nlp.mean() - aucs_basic.mean():.3f}")
 print(f"RQ3 (adding framing): +{aucs_framing.mean() - aucs_control.mean():.3f}")
 print("=" * 50)
+
+# ---------------------------------------------------------
+# RQ5: Funding Ratio Regression (Continuous Outcome)
+# ---------------------------------------------------------
+
+print("\n" + "=" * 50)
+print("RQ5: Funding Ratio Regression")
+print("=" * 50)
+
+# Use same education dataset
+X_rq5 = edu[basic_features + nlp_features].copy()
+X_rq5['category_avg_success'] = edu['sub_category'].map(
+    edu.groupby('sub_category')['success'].mean()
+).fillna(edu['success'].mean()).values
+
+y_rq5_raw = edu['funding_ratio']
+
+# [Fix 8] Log-transform the target — raw funding_ratio is heavily right-skewed.
+# log1p handles zero values safely. Cap at 99.5th percentile first.
+cap = y_rq5_raw.quantile(0.995)
+y_rq5 = np.log1p(y_rq5_raw.clip(upper=cap))
+
+# Align X and y (drop any NaN in funding_ratio)
+mask = y_rq5_raw.notna()
+X_rq5 = X_rq5[mask].reset_index(drop=True)
+y_rq5 = y_rq5[mask].reset_index(drop=True)
+
+# Scale
+scaler_rq5 = StandardScaler()
+X_rq5_scaled = scaler_rq5.fit_transform(X_rq5)
+
+# Model (fit on full set for coefficient inspection — CV gives honest R²)
+model_rq5 = LinearRegression()
+model_rq5.fit(X_rq5_scaled, y_rq5)
+
+# [Fix 7] CV on full dataset, not just the training split
+cv_rq5 = cross_val_score(LinearRegression(), X_rq5_scaled, y_rq5, cv=5, scoring='r2')
+r2   = cv_rq5.mean()
+rmse = np.sqrt(mean_squared_error(y_rq5, model_rq5.predict(X_rq5_scaled)))
+
+print(f"R² (5-fold CV): {r2:.3f} ± {cv_rq5.std():.3f}")
+print(f"RMSE (train):   {rmse:.3f}  (log scale)")
+
+coeffs = pd.DataFrame({
+    'feature': X_rq5.columns,
+    'coef': model_rq5.coef_
+}).sort_values('coef', ascending=False)
+
+print("\nTop Positive Drivers:")
+print(coeffs.head(10))
+
+print("\nTop Negative Drivers:")
+print(coeffs.tail(10))
+
+print("\n" + "=" * 50)
+print("MODEL VALIDATION: Cross-Validation")
+print("=" * 50)
+
+# [Fix 7] RQ2 NLP model CV — run on full dataset via run_cv() (already done above)
+print(f"RQ2 (NLP model) CV AUC:     {aucs_nlp.mean():.3f} ± {aucs_nlp.std():.3f}")
+
+# [Fix 7] RQ3 Framing model CV — same
+print(f"RQ3 (Framing model) CV AUC: {aucs_framing.mean():.3f} ± {aucs_framing.std():.3f}")
+
+# RQ5 cross-validation already computed above
+print(f"RQ5 (Regression) CV R²:     {r2:.3f} ± {cv_rq5.std():.3f}")
+
+print("\n" + "=" * 50)
+print("FINAL MODEL COMPARISON")
+print("=" * 50)
+
+print(f"RQ2 Improvement (NLP):     +{aucs_nlp.mean() - aucs_basic.mean():.3f}")
+print(f"RQ3 Improvement (Framing): +{aucs_framing.mean() - aucs_control.mean():.3f}")
+print(f"RQ5 Model Strength (R²):   {r2:.3f}")
+
+print("\nKey Insight:")
+if (aucs_nlp.mean() - aucs_basic.mean()) > (aucs_framing.mean() - aucs_control.mean()):
+    print("→ NLP features add more predictive power than framing features.")
+else:
+    print("→ Framing features add more predictive power than NLP features.")
+
+# ---------------------------------------------------------
+# ROC Curve  [Fix 5] matplotlib now imported at top
+# ---------------------------------------------------------
+fpr, tpr, _ = roc_curve(y_test_rq2, model_nlp.predict_proba(X_nlp_test_scaled)[:, 1])
+
+plt.figure()
+plt.plot(fpr, tpr, label=f"NLP Model (AUC = {auc_nlp:.3f})")
+plt.plot([0, 1], [0, 1], linestyle='--')
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("ROC Curve - NLP Model")
+plt.legend()
+plt.savefig(os.path.join(BASE_DIR, "outputs", "figures", "roc_curve_nlp.png"))
+plt.close()
