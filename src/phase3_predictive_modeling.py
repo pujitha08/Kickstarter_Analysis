@@ -267,44 +267,6 @@ print(coeffs.head(10))
 print("\nTop Negative Drivers:")
 print(coeffs.tail(10))
 
-# ---------------------------------------------------------
-# PLOT: Top Positive & Negative Coefficients (RQ5)
-# ---------------------------------------------------------
-
-# Get top 10 positive and top 10 negative coefficients
-top_positive = coeffs.head(10)
-top_negative = coeffs.tail(10)
-
-# Combine for plotting
-coeffs_for_plot = pd.concat([top_positive, top_negative])
-
-# Create figure
-fig, ax = plt.subplots(figsize=(10, 8))
-
-# Create bars - positive (green), negative (red)
-colors = ['green' if c > 0 else 'red' for c in coeffs_for_plot['coef']]
-bars = ax.barh(coeffs_for_plot['feature'], coeffs_for_plot['coef'], color=colors)
-
-# Add labels and title
-ax.set_xlabel('Coefficient Value')
-ax.set_title('Top Drivers of Funding Ratio (Log Scale)')
-ax.axvline(x=0, color='black', linewidth=0.5)
-
-# Add value labels on bars
-for bar, val in zip(bars, coeffs_for_plot['coef']):
-    ax.text(bar.get_width() + 0.005, bar.get_y() + bar.get_height()/2,
-            f'{val:.3f}', va='center', fontsize=9)
-
-plt.tight_layout()
-plt.savefig(os.path.join(BASE_DIR, "outputs", "figures", "rq5_coefficients.png"))
-plt.close()
-
-print("Saved: rq5_coefficients.png")
-
-
-
-
-
 print("\n" + "=" * 50)
 print("MODEL VALIDATION: Cross-Validation")
 print("=" * 50)
