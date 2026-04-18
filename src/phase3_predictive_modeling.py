@@ -26,7 +26,6 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score, roc_curve, r2_score, mean_squared_error
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.compose import ColumnTransformer
-from sklearn.pipeline import Pipeline
 import os
 import warnings
 warnings.filterwarnings('ignore')
@@ -261,7 +260,9 @@ if SHAP_AVAILABLE:
     print("   - Right side = Pushes toward SUCCESS | Left side = Pushes toward FAILURE")
 
 
-
+print("\n" + "=" * 60)
+print("Moving to Education-Only Analysis")
+print("=" * 60 + "\n")
 
 
 # Keep only clean education projects
