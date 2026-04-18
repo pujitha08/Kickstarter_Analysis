@@ -1,40 +1,49 @@
 """
-PHASE 3: RQ2 & RQ3 - Predictive Modeling
+PHASE 3: RQ1, RQ2, RQ3 & RQ5 - Predictive Modeling
 -----------------------------------------
+RQ1: Binary classification (full dataset) - Logistic Reg, RF, XGBoost + SHAP
 RQ2: Do NLP text features improve prediction vs basic features only?
 RQ3: Do framing features improve prediction beyond control variables?
 RQ5: What structural/NLP features best predict continuous funding ratio?
 
-This script builds four logistic regression models:
+This script builds:
+- RQ1: Full dataset models (Logistic Regression, Random Forest, XGBoost) + SHAP explainability
 - RQ2 Model 1: Basic features only
 - RQ2 Model 2: Basic + ALL NLP features
 - RQ3 Model 3: Control features only
 - RQ3 Model 4: Control + Framing features
+- RQ5: Linear regression for funding ratio prediction
 
 Outputs mean ± std AUC across 5 stratified CV folds.
-
-Fixes applied:
-  [Fix 1] 5-fold stratified CV replaces single train/test split
-  [Fix 2] class_weight='balanced' on all LR models
-  [Fix 3] category_avg_success recomputed per fold (prevents leakage)
-  [Fix 4] blurb_char_count dropped (collinear with blurb_word_count)
-           sentiment_pos / sentiment_neg dropped (derived from compound)
-  [Fix 5] matplotlib import added (was missing — ROC curve crashed)
-  [Fix 6] duplicate cross_val_score import removed
-  [Fix 7] RQ5 CV now runs on full dataset, not just the training split
-  [Fix 8] RQ5 target log-transformed to handle right-skewed funding_ratio
 """
 
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt                        # [Fix 5] was missing
-from sklearn.model_selection import StratifiedKFold, cross_val_score   # [Fix 1]
+import matplotlib.pyplot as plt
+from sklearn.model_selection import StratifiedKFold, cross_val_score
 from sklearn.linear_model import LogisticRegression, LinearRegression
+from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import roc_auc_score, roc_curve, r2_score, mean_squared_error
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.compose import ColumnTransformer
 import os
 import warnings
 warnings.filterwarnings('ignore')
+
+# Try XGBoost and SHAP
+try:
+    from xgboost import XGBClassifier
+    XGB_AVAILABLE = True
+except ImportError:
+    XGB_AVAILABLE = False
+    print("XGBoost not installed. Run: pip install xgboost")
+
+try:
+    import shap
+    SHAP_AVAILABLE = True
+except ImportError:
+    SHAP_AVAILABLE = False
+    print("SHAP not installed. Run: pip install shap")
 
 # ---------------------------------------------------------
 # Load dataset
@@ -44,6 +53,217 @@ DATA_PATH = os.path.join(BASE_DIR, "data", "processed", "kickstarter_cleaned.csv
 
 df = pd.read_csv(DATA_PATH)
 print(f"Loaded {len(df):,} rows")
+
+# =========================================================
+# [RQ1 ADDED] RQ1: BINARY CLASSIFICATION (FULL DATASET)
+# =========================================================
+print("\n" + "=" * 60)
+print("RQ1: BINARY CLASSIFICATION (Full Dataset - All Projects)")
+print("=" * 60)
+
+# Prepare full dataset (all completed projects, NOT just education)
+df_full = df[df['status'].isin(['successful', 'failed'])].copy()
+df_full['success'] = (df_full['status'] == 'successful').astype(int)
+print(f"Full dataset: {len(df_full):,} rows")
+print(f"Success rate: {df_full['success'].mean():.1%}")
+
+# Features for RQ1 (structural features only, no text/NLP)
+cat_features_rq1 = ['main_category', 'country', 'month', 'day_of_week']
+num_features_rq1 = ['goal_usd', 'duration', 'launch_hour', 'creator_total_projects']
+
+X_rq1 = df_full[cat_features_rq1 + num_features_rq1]
+y_rq1 = df_full['success'].values
+
+# Preprocessor for RQ1
+preprocessor_rq1 = ColumnTransformer(
+    transformers=[
+        ('num', StandardScaler(), num_features_rq1),
+        ('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), cat_features_rq1)
+    ])
+
+def get_feature_names_rq1(preprocessor, cat_features, num_features):
+    cat_names = preprocessor.named_transformers_['cat'].get_feature_names_out(cat_features)
+    return list(num_features) + list(cat_names)
+
+# [RQ1 ADDED] 5-fold stratified CV runner for RQ1
+def run_cv_rq1(feature_list, model, n_splits=5):
+    """5-fold stratified CV for RQ1 models"""
+    skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=42)
+    fold_aucs = []
+    
+    for tr_idx, te_idx in skf.split(X_rq1, y_rq1):
+        X_train = X_rq1.iloc[tr_idx]
+        X_test = X_rq1.iloc[te_idx]
+        y_train = y_rq1[tr_idx]
+        y_test = y_rq1[te_idx]
+        
+        # Preprocess
+        preprocessor_rq1.fit(X_train)
+        X_train_scaled = preprocessor_rq1.transform(X_train)
+        X_test_scaled = preprocessor_rq1.transform(X_test)
+        
+        # Clone and train model
+        if isinstance(model, LogisticRegression):
+            model_clone = LogisticRegression(max_iter=2000, random_state=42, class_weight='balanced')
+        elif isinstance(model, RandomForestClassifier):
+            model_clone = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1, class_weight='balanced')
+        elif XGB_AVAILABLE and isinstance(model, XGBClassifier):
+            model_clone = XGBClassifier(n_estimators=100, random_state=42, eval_metric='logloss', use_label_encoder=False)
+        else:
+            model_clone = model
+        
+        model_clone.fit(X_train_scaled, y_train)
+        y_prob = model_clone.predict_proba(X_test_scaled)[:, 1]
+        fold_aucs.append(roc_auc_score(y_test, y_prob))
+    
+    return np.array(fold_aucs)
+
+# [RQ1 ADDED] Train models with CV
+models_rq1 = {}
+results_rq1 = {}
+
+# Logistic Regression
+lr_model = LogisticRegression(max_iter=2000, random_state=42, class_weight='balanced')
+aucs_lr = run_cv_rq1(None, lr_model)
+results_rq1["Logistic Regression"] = {'auc_mean': aucs_lr.mean(), 'auc_std': aucs_lr.std()}
+print(f"Logistic Regression: AUC = {aucs_lr.mean():.4f} ± {aucs_lr.std():.4f}")
+
+# Random Forest
+rf_model = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1, class_weight='balanced')
+aucs_rf = run_cv_rq1(None, rf_model)
+results_rq1["Random Forest"] = {'auc_mean': aucs_rf.mean(), 'auc_std': aucs_rf.std()}
+print(f"Random Forest: AUC = {aucs_rf.mean():.4f} ± {aucs_rf.std():.4f}")
+
+# XGBoost (if available)
+if XGB_AVAILABLE:
+    xgb_model = XGBClassifier(n_estimators=100, random_state=42, eval_metric='logloss', use_label_encoder=False)
+    aucs_xgb = run_cv_rq1(None, xgb_model)
+    results_rq1["XGBoost"] = {'auc_mean': aucs_xgb.mean(), 'auc_std': aucs_xgb.std()}
+    print(f"XGBoost: AUC = {aucs_xgb.mean():.4f} ± {aucs_xgb.std():.4f}")
+
+# [RQ1 ADDED] Train final models on full data for feature importance and SHAP
+preprocessor_rq1.fit(X_rq1)
+X_scaled_full = preprocessor_rq1.transform(X_rq1)
+feature_names_rq1 = get_feature_names_rq1(preprocessor_rq1, cat_features_rq1, num_features_rq1)
+
+# Random Forest Feature Importance
+rf_final = RandomForestClassifier(n_estimators=100, random_state=42, n_jobs=-1, class_weight='balanced')
+rf_final.fit(X_scaled_full, y_rq1)
+importances = rf_final.feature_importances_
+feat_importance = pd.Series(importances, index=feature_names_rq1).sort_values(ascending=False)
+
+print("\n" + "=" * 60)
+print("TOP 10 FEATURES (Random Forest - Full Dataset)")
+print("=" * 60)
+for i, (feat, imp) in enumerate(feat_importance.head(10).items()):
+    print(f"{i+1}. {feat}: {imp:.4f}")
+
+# Plot feature importance
+plt.figure(figsize=(10, 8))
+feat_importance.head(15).plot(kind='barh')
+plt.title("Top 15 Features - Random Forest (Full Dataset)")
+plt.xlabel("Importance")
+plt.gca().invert_yaxis()
+plt.tight_layout()
+plt.savefig(os.path.join(BASE_DIR, "outputs", "figures", "rq1_rf_importance.png"))
+plt.close()
+print("\nSaved: rq1_rf_importance.png")
+
+# [RQ1 ADDED] Logistic Regression Coefficients (direction of impact)
+lr_final = LogisticRegression(max_iter=2000, random_state=42, class_weight='balanced')
+lr_final.fit(X_scaled_full, y_rq1)
+coefs = lr_final.coef_[0]
+feat_coefs = pd.Series(coefs, index=feature_names_rq1).sort_values(ascending=False)
+
+print("\n" + "=" * 60)
+print("WHAT HELPS vs HURTS SUCCESS (Logistic Regression - Full Dataset)")
+print("=" * 60)
+
+print("\nHELPS SUCCESS (Positive coefficients):")
+for feat, coef in feat_coefs.head(8).items():
+    print(f"   + {feat}: {coef:.4f}")
+
+print("\nHURTS SUCCESS (Negative coefficients):")
+for feat, coef in feat_coefs.tail(8).items():
+    print(f"   - {feat}: {coef:.4f}")
+
+# Plot coefficients
+plt.figure(figsize=(10, 8))
+colors = ['green' if c > 0 else 'red' for c in pd.concat([feat_coefs.head(10), feat_coefs.tail(10)])]
+pd.concat([feat_coefs.head(10), feat_coefs.tail(10)]).plot(kind='barh', color=colors)
+plt.title("Top Positive & Negative Drivers (Full Dataset)")
+plt.xlabel("Coefficient")
+plt.axvline(x=0, color='black', linewidth=0.5)
+plt.tight_layout()
+plt.savefig(os.path.join(BASE_DIR, "outputs", "figures", "rq1_lr_coefficients.png"))
+plt.close()
+print("\nSaved: rq1_lr_coefficients.png")
+
+# [RQ1 ADDED] ROC Curves comparison
+plt.figure(figsize=(10, 8))
+for name, res in results_rq1.items():
+    if name == "Random Forest":
+        y_prob = rf_final.predict_proba(X_scaled_full)[:, 1]
+    elif name == "Logistic Regression":
+        y_prob = lr_final.predict_proba(X_scaled_full)[:, 1]
+    else:
+        continue
+    fpr, tpr, _ = roc_curve(y_rq1, y_prob)
+    plt.plot(fpr, tpr, label=f"{name} (AUC = {res['auc_mean']:.3f})")
+
+plt.plot([0, 1], [0, 1], 'k--', label='Random Guess')
+plt.xlabel("False Positive Rate")
+plt.ylabel("True Positive Rate")
+plt.title("RQ1: ROC Curves - Full Dataset")
+plt.legend()
+plt.tight_layout()
+plt.savefig(os.path.join(BASE_DIR, "outputs", "figures", "rq1_roc_curves.png"))
+plt.close()
+print("Saved: rq1_roc_curves.png")
+
+# [RQ1 ADDED] SHAP Analysis
+if SHAP_AVAILABLE:
+    print("\n" + "=" * 60)
+    print("SHAP ANALYSIS - Understanding Model Predictions")
+    print("=" * 60)
+    
+    # Use a sample for faster computation
+    sample_size = min(500, len(X_scaled_full))
+    np.random.seed(42)
+    sample_idx = np.random.choice(len(X_scaled_full), sample_size, replace=False)
+    X_sample = X_scaled_full[sample_idx]
+    
+    explainer = shap.TreeExplainer(rf_final)
+    shap_values = explainer.shap_values(X_sample)
+    
+    # For binary classification, shap_values is list [class0, class1]
+    shap_values_success = shap_values[1] if isinstance(shap_values, list) else shap_values
+    
+    # Summary plot
+    plt.figure()
+    shap.summary_plot(shap_values_success, X_sample, feature_names=feature_names_rq1, show=False)
+    plt.tight_layout()
+    plt.savefig(os.path.join(BASE_DIR, "outputs", "figures", "rq1_shap_summary.png"), bbox_inches='tight')
+    plt.close()
+    print("Saved: rq1_shap_summary.png")
+    
+    # Bar plot
+    plt.figure()
+    shap.summary_plot(shap_values_success, X_sample, feature_names=feature_names_rq1, plot_type="bar", show=False)
+    plt.tight_layout()
+    plt.savefig(os.path.join(BASE_DIR, "outputs", "figures", "rq1_shap_bar.png"), bbox_inches='tight')
+    plt.close()
+    print("Saved: rq1_shap_bar.png")
+    
+    print("\nSHAP Interpretation:")
+    print("   - Red = High feature value | Blue = Low feature value")
+    print("   - Right side = Pushes toward SUCCESS | Left side = Pushes toward FAILURE")
+
+
+print("\n" + "=" * 60)
+print("Moving to Education-Only Analysis")
+print("=" * 60 + "\n")
+
 
 # Keep only clean education projects
 edu = df[(df['is_education'] == 1) & (df['biased_category'] == 0)].copy()
