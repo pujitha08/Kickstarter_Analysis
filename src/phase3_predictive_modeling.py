@@ -215,6 +215,34 @@ print(f"RQ3 (adding framing): +{aucs_framing.mean() - aucs_control.mean():.3f}")
 print("=" * 50)
 
 # ---------------------------------------------------------
+# RQ3: Controlled Regression (Framing Effects)
+# ---------------------------------------------------------
+
+print("\n" + "=" * 50)
+print("RQ3: Controlled Regression (Framing Effects)")
+print("=" * 50)
+
+import statsmodels.api as sm
+
+# Build regression dataset
+X_rq3_reg = edu[basic_features + framing_features].copy()
+
+# Add category_avg_success (global version is fine for regression)
+X_rq3_reg['category_avg_success'] = edu['sub_category'].map(
+    edu.groupby('sub_category')['success'].mean()
+).fillna(edu['success'].mean()).values
+
+# Add constant for regression
+X_rq3_reg = sm.add_constant(X_rq3_reg)
+
+y_rq3_reg = edu['success']
+
+# Fit logistic regression (interpretable coefficients)
+model_rq3_reg = sm.Logit(y_rq3_reg, X_rq3_reg).fit(disp=0)
+
+print(model_rq3_reg.summary())
+
+# ---------------------------------------------------------
 # RQ5: Funding Ratio Regression (Continuous Outcome)
 # ---------------------------------------------------------
 
