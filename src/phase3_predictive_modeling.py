@@ -62,7 +62,7 @@ print("RQ1: BINARY CLASSIFICATION (Full Dataset - All Projects)")
 print("=" * 60)
 
 # Prepare full dataset (all completed projects, NOT just education)
-df_full = df[df['status'].isin(['successful', 'failed'])].copy()
+df_full = df[(df['status'].isin(['successful', 'failed'])) & (df['biased_category'] == 0)].copy()
 df_full['success'] = (df_full['status'] == 'successful').astype(int)
 print(f"Full dataset: {len(df_full):,} rows")
 print(f"Success rate: {df_full['success'].mean():.1%}")
