@@ -21,7 +21,7 @@ Our signature finding is the **framing effect**: identical educational content s
 Education isn't a single Kickstarter category — it's a mission scattered across the entire platform. We define our community using two layers:
 
 - **Layer 1 (Category-based):** Projects in explicitly educational categories — Academic, Children's Books, Workshops, Kids
-- **Layer 2 (Keyword-based):** Projects from any category whose description signals educational intent (e.g., "learn," "teach," "student," "STEM," "curriculum")
+- **Layer 2 (Keyword-based):** Projects from any category whose description signals educational intent (ex: "learn," "teach," "student," "STEM," "curriculum")
 
 This two-layer approach captures ~11,000 education-themed projects across 15 Kickstarter categories and 23 countries.
 
