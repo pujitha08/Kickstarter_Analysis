@@ -7,7 +7,7 @@ RQ3: Do framing features improve prediction beyond control variables?
 RQ5: What structural/NLP features best predict continuous funding ratio?
 
 This script builds:
-- RQ1: Full dataset models (Logistic Regression, Random Forest, XGBoost) + SHAP explainability
+- RQ1: Full dataset models (Logistic Regression, Random Forest, XGBoost)
 - RQ2 Model 1: Basic features only
 - RQ2 Model 2: Basic + ALL NLP features
 - RQ3 Model 3: Control features only
@@ -235,45 +235,6 @@ plt.tight_layout()
 plt.savefig(os.path.join(BASE_DIR, "outputs", "figures", "rq1_roc_curves.png"))
 plt.close()
 print("Saved: rq1_roc_curves.png")
-
-
-# [RQ1 ADDED] SHAP Analysis
-if SHAP_AVAILABLE:
-    print("\n" + "=" * 60)
-    print("SHAP ANALYSIS - Understanding Model Predictions")
-    print("=" * 60)
-    
-    # Use a sample for faster computation
-    sample_size = min(500, len(X_scaled_full))
-    np.random.seed(42)
-    sample_idx = np.random.choice(len(X_scaled_full), sample_size, replace=False)
-    X_sample = X_scaled_full[sample_idx]
-    
-    explainer = shap.TreeExplainer(rf_final)
-    shap_values = explainer.shap_values(X_sample)
-    
-    # For binary classification, shap_values is list [class0, class1]
-    shap_values_success = shap_values[1] if isinstance(shap_values, list) else shap_values
-    
-    # Summary plot
-    plt.figure()
-    shap.summary_plot(shap_values_success, X_sample, feature_names=feature_names_rq1, show=False)
-    plt.tight_layout()
-    plt.savefig(os.path.join(BASE_DIR, "outputs", "figures", "rq1_shap_summary.png"), bbox_inches='tight')
-    plt.close()
-    print("Saved: rq1_shap_summary.png")
-    
-    # Bar plot
-    plt.figure()
-    shap.summary_plot(shap_values_success, X_sample, feature_names=feature_names_rq1, plot_type="bar", show=False)
-    plt.tight_layout()
-    plt.savefig(os.path.join(BASE_DIR, "outputs", "figures", "rq1_shap_bar.png"), bbox_inches='tight')
-    plt.close()
-    print("Saved: rq1_shap_bar.png")
-    
-    print("\nSHAP Interpretation:")
-    print("   - Red = High feature value | Blue = Low feature value")
-    print("   - Right side = Pushes toward SUCCESS | Left side = Pushes toward FAILURE")
 
 
 print("\n" + "=" * 60)
