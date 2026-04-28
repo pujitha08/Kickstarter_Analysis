@@ -35,7 +35,6 @@ This two-layer approach captures ~11,000 education-themed projects across 15 Kic
 │   ├── phase1_data_preparation.py    ← Data cleaning, community definition, feature engineering
 │   ├── phase2_eda.py                 ← Exploratory data analysis & visualizations
 │   ├── phase3_predictive_modeling.py ← Classification, regression, SHAP explainability
-│   └── phase4_story_narrative.py     ← Education community deep-dive & case studies
 ├── notebooks/                        ← Jupyter notebooks for exploration (optional)
 ├── outputs/
 │   ├── figures/                      ← Plots and charts
