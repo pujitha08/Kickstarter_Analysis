@@ -72,10 +72,11 @@ Place the raw dataset (`Kickstarter Campaigns DataSet.csv`) in `data/raw/`, then
 ```bash
 python src/phase1_data_preparation.py    # Clean data, define community, engineer features
 python src/phase2_eda.py                 # Generate EDA visualizations
-python src/phase3_predictive_modeling.py  # Train models, SHAP analysis
-python src/phase4_story_narrative.py      # Education community deep-dive
+python src/phase3_predictive_modeling.py  # Train models
+python src/phase4_shapanalysis.py      # SHAP analysis
 ```
 
 ## Team
 
-DSBA 6211 — Spring 2026
+DSBA 6211 — Spring 2026, 
+Group 1 (Pujitha Attuluri, Kristin kelly, Frehiwot Haile, Mo Diallo, Alejandra Bustamante )
