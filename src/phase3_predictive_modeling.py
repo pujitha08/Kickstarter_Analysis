@@ -200,18 +200,33 @@ plt.close()
 print("\nSaved: rq1_lr_coefficients.png")
 
 # [RQ1 ADDED] ROC Curves comparison
-plt.figure(figsize=(10, 8))
-for name, res in results_rq1.items():
-    if name == "Random Forest":
-        y_prob = rf_final.predict_proba(X_scaled_full)[:, 1]
-    elif name == "Logistic Regression":
-        y_prob = lr_final.predict_proba(X_scaled_full)[:, 1]
-    else:
-        continue
-    fpr, tpr, _ = roc_curve(y_rq1, y_prob)
-    plt.plot(fpr, tpr, label=f"{name} (AUC = {res['auc_mean']:.3f})")
+if XGB_AVAILABLE:
+    xgb_final = XGBClassifier(n_estimators=100, random_state=42, eval_metric='logloss', use_label_encoder=False)
+    xgb_final.fit(X_scaled_full, y_rq1)
+    print("XGBoost final model trained for ROC curve")
 
+# [RQ1 ADDED] ROC Curves comparison (ALL 3 MODELS)
+plt.figure(figsize=(10, 8))
+
+# Logistic Regression
+y_prob_lr = lr_final.predict_proba(X_scaled_full)[:, 1]
+fpr_lr, tpr_lr, _ = roc_curve(y_rq1, y_prob_lr)
+plt.plot(fpr_lr, tpr_lr, label=f"Logistic Regression (AUC = {results_rq1['Logistic Regression']['auc_mean']:.3f})")
+
+# Random Forest
+y_prob_rf = rf_final.predict_proba(X_scaled_full)[:, 1]
+fpr_rf, tpr_rf, _ = roc_curve(y_rq1, y_prob_rf)
+plt.plot(fpr_rf, tpr_rf, label=f"Random Forest (AUC = {results_rq1['Random Forest']['auc_mean']:.3f})")
+
+# XGBoost (if available)
+if XGB_AVAILABLE:
+    y_prob_xgb = xgb_final.predict_proba(X_scaled_full)[:, 1]          
+    fpr_xgb, tpr_xgb, _ = roc_curve(y_rq1, y_prob_xgb)
+    plt.plot(fpr_xgb, tpr_xgb, label=f"XGBoost (AUC = {results_rq1['XGBoost']['auc_mean']:.3f})")
+
+# Random guess line
 plt.plot([0, 1], [0, 1], 'k--', label='Random Guess')
+
 plt.xlabel("False Positive Rate")
 plt.ylabel("True Positive Rate")
 plt.title("RQ1: ROC Curves - Full Dataset")
@@ -220,6 +235,7 @@ plt.tight_layout()
 plt.savefig(os.path.join(BASE_DIR, "outputs", "figures", "rq1_roc_curves.png"))
 plt.close()
 print("Saved: rq1_roc_curves.png")
+
 
 # [RQ1 ADDED] SHAP Analysis
 if SHAP_AVAILABLE:
